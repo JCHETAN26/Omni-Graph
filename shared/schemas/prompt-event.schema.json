@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PromptEvent",
+  "type": "object",
+  "required": [
+    "request_id",
+    "user_id",
+    "prompt",
+    "sanitized_prompt",
+    "redaction_count",
+    "created_at"
+  ],
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "description": "Unique identifier for end-to-end request tracing."
+    },
+    "user_id": {
+      "type": "string",
+      "description": "Caller identity used for policy checks and audit logging."
+    },
+    "prompt": {
+      "type": "string",
+      "description": "Original incoming prompt before sanitization."
+    },
+    "sanitized_prompt": {
+      "type": "string",
+      "description": "Prompt after deterministic masking."
+    },
+    "redaction_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of structured redactions applied by the gateway."
+    },
+    "policy_tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Optional tags emitted by policy enforcement."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC event creation timestamp."
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,17 @@
+{
+  "company_name": "GuardianStream",
+  "email": "chetannahar2608@gmail.com",
+  "download_root": "../../data/raw/sec",
+  "requests": [
+    {
+      "ticker_or_cik": "MSFT",
+      "form_type": "10-K",
+      "limit": 2
+    },
+    {
+      "ticker_or_cik": "AAPL",
+      "form_type": "10-Q",
+      "limit": 2
+    }
+  ]
+}

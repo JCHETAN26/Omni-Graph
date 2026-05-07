@@ -1,0 +1,47 @@
+# macOS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+
+# Java
+gateway/target/
+*.class
+
+# Python
+__pycache__/
+.pytest_cache/
+.venv/
+*.pyc
+agent/app/__pycache__/
+
+# Node
+dashboard/node_modules/
+dashboard/.next/
+
+# Environment files
+.env
+.env.*
+
+# Logs
+*.log
+
+# Local datasets
+data/raw/**
+!data/raw/
+!data/raw/.gitkeep
+!data/raw/sec/
+!data/raw/sec/.gitkeep
+!data/raw/enron/
+!data/raw/enron/.gitkeep
+data/processed/**
+!data/processed/
+!data/processed/.gitkeep
+!data/processed/sec/
+!data/processed/sec/.gitkeep
+data/indexes/**
+!data/indexes/
+!data/indexes/.gitkeep
+!data/indexes/sec/
+!data/indexes/sec/.gitkeep
