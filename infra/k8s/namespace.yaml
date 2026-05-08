@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: guardian-stream
+  labels:
+    app.kubernetes.io/name: guardian-stream
+    app.kubernetes.io/part-of: guardian-stream

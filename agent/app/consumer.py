@@ -1,6 +1,5 @@
 import json
 import logging
-from typing import Optional
 
 from kafka import KafkaConsumer
 from kafka.errors import NoBrokersAvailable
@@ -12,7 +11,7 @@ from .workflow import build_response
 logger = logging.getLogger(__name__)
 
 
-def create_consumer() -> Optional[KafkaConsumer]:
+def create_consumer() -> KafkaConsumer | None:
     try:
         return KafkaConsumer(
             settings.prompt_topic,

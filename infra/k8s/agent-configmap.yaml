@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: guardian-stream-agent-config
+  namespace: guardian-stream
+  labels:
+    app.kubernetes.io/name: guardian-stream-agent
+data:
+  KAFKA_BOOTSTRAP_SERVERS: "kafka.guardian-stream.svc.cluster.local:9092"
+  PROMPT_TOPIC: "sanitized-prompts"
+  RESPONSE_TOPIC: "system-responses"
+  KAFKA_CONSUMER_GROUP: "guardian-stream-agent"
+  SEC_INDEX_PATH: "/data/indexes/sec"
+  SEC_COLLECTION_NAME: "sec_filings"
+  SEC_TOP_K: "3"
+  SYNTHESIS_MODEL: "claude-opus-4-7"
+  SYNTHESIS_MAX_TOKENS: "1024"

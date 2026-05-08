@@ -1,25 +1,50 @@
 from __future__ import annotations
 
 import json
-import math
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
+from sentence_transformers import SentenceTransformer
 
 from .config import settings
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_INDEX_PATH = REPO_ROOT / settings.sec_index_path
+EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9]{2,}")
-EMBEDDING_DIMENSION = 256
 STOPWORDS = {
-    "a", "an", "and", "are", "as", "at", "be", "by", "does", "for", "from",
-    "how", "in", "is", "it", "of", "on", "or", "say", "that", "the", "to",
-    "what", "when", "where", "which", "with",
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "does",
+    "for",
+    "from",
+    "how",
+    "in",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "say",
+    "that",
+    "the",
+    "to",
+    "what",
+    "when",
+    "where",
+    "which",
+    "with",
 }
 KNOWN_COMPANY_ALIASES = {
     "microsoft": {"microsoft", "msft"},
@@ -39,20 +64,19 @@ def tokenize(text: str) -> list[str]:
     return [token for token in TOKEN_PATTERN.findall(text.lower()) if token not in STOPWORDS]
 
 
-def embed_text(text: str, dimension: int = EMBEDDING_DIMENSION) -> list[float]:
-    vector = [0.0] * dimension
-    tokens = tokenize(text)
-    if not tokens:
-        return vector
+@lru_cache(maxsize=1)
+def get_embedding_model() -> SentenceTransformer:
+    return SentenceTransformer(EMBEDDING_MODEL_NAME)
 
-    for token in tokens:
-        bucket = hash(token) % dimension
-        vector[bucket] += 1.0
 
-    norm = math.sqrt(sum(value * value for value in vector))
-    if norm == 0:
-        return vector
-    return [value / norm for value in vector]
+def embed_text(text: str) -> list[float]:
+    return embed_texts([text])[0]
+
+
+def embed_texts(texts: list[str]) -> list[list[float]]:
+    model = get_embedding_model()
+    vectors = model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
+    return [vector.tolist() for vector in vectors]
 
 
 def get_client(index_path: Path | None = None) -> chromadb.PersistentClient:
@@ -95,7 +119,7 @@ def retrieve_sec_context(
     distances = results.get("distances", [[]])[0]
 
     retrieved: list[RetrievedChunk] = []
-    for chunk_id, text, metadata, distance in zip(ids, documents, metadatas, distances):
+    for chunk_id, text, metadata, distance in zip(ids, documents, metadatas, distances, strict=False):
         metadata = dict(metadata or {})
         if isinstance(metadata.get("tickers"), str):
             try:

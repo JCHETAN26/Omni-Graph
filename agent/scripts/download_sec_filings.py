@@ -4,8 +4,8 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from urllib.parse import urlparse
 from typing import Any
+from urllib.parse import urlparse
 
 from sec_downloader import Downloader
 from sec_downloader.types import RequestedFilings
@@ -16,9 +16,7 @@ DEFAULT_CONFIG_PATH = REPO_ROOT / "agent" / "config" / "sec_filings.json"
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Download a small allowlisted set of SEC filings into data/raw/sec."
-    )
+    parser = argparse.ArgumentParser(description="Download a small allowlisted set of SEC filings into data/raw/sec.")
     parser.add_argument(
         "--config",
         type=Path,

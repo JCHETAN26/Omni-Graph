@@ -1,0 +1,35 @@
+# KEDA scales the agent on Kafka consumer lag for the sanitized-prompts topic.
+# Requires KEDA installed in the cluster (https://keda.sh).
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: guardian-stream-agent
+  namespace: guardian-stream
+  labels:
+    app.kubernetes.io/name: guardian-stream-agent
+spec:
+  scaleTargetRef:
+    name: guardian-stream-agent
+  pollingInterval: 15        # seconds between lag checks
+  cooldownPeriod: 120        # seconds before scaling back to minReplicas after the load drops
+  minReplicaCount: 1
+  maxReplicaCount: 10
+  fallback:
+    failureThreshold: 3
+    replicas: 2
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+        scaleUp:
+          stabilizationWindowSeconds: 0
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka.guardian-stream.svc.cluster.local:9092
+        consumerGroup: guardian-stream-agent
+        topic: sanitized-prompts
+        lagThreshold: "20"        # scale up when avg lag per replica exceeds 20 messages
+        offsetResetPolicy: latest
+        allowIdleConsumers: "false"

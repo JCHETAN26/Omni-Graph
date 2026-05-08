@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, List
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -10,13 +10,14 @@ class PromptEvent(BaseModel):
     prompt: str
     sanitized_prompt: str
     redaction_count: int
-    policy_tags: List[str] = []
+    policy_tags: list[str] = []
     created_at: datetime
 
 
 class AgentResponse(BaseModel):
     request_id: str
     answer: str
-    reasoning_trace: List[str]
+    reasoning_trace: list[str]
     created_at: datetime
-    sources: List[dict[str, Any]] = []
+    sources: list[dict[str, Any]] = []
+    verification: dict[str, Any] | None = None

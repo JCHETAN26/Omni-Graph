@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import argparse
 import logging
-from pathlib import Path
 import sys
+from pathlib import Path
 
 LOGGER = logging.getLogger("sec_query")
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -27,8 +27,10 @@ def main() -> None:
     results = retrieve_sec_context(query=args.query, top_k=args.top_k)
 
     for index, result in enumerate(results, start=1):
-        print(f"[{index}] {result.metadata.get('company_name')} {result.metadata.get('form_type')} "
-              f"{result.metadata.get('filing_date')} {result.chunk_id}")
+        print(
+            f"[{index}] {result.metadata.get('company_name')} {result.metadata.get('form_type')} "
+            f"{result.metadata.get('filing_date')} {result.chunk_id}"
+        )
         print(result.metadata.get("source_path"))
         print(result.text[:1000])
         print()

@@ -1,0 +1,30 @@
+name: k8s-validate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/k8s/**"
+      - ".github/workflows/k8s-validate.yml"
+  pull_request:
+    paths:
+      - "infra/k8s/**"
+      - ".github/workflows/k8s-validate.yml"
+
+jobs:
+  kubeval:
+    name: Validate manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubeconform
+        run: |
+          curl -sSL "https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz" \
+            | tar xz -C /usr/local/bin kubeconform
+
+      - name: Render with kustomize and validate
+        run: |
+          kubectl kustomize infra/k8s/ \
+            | kubeconform -strict -ignore-missing-schemas -summary -

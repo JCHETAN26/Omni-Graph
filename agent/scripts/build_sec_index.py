@@ -3,8 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Any
 
 LOGGER = logging.getLogger("sec_index")
@@ -15,7 +15,7 @@ if str(AGENT_ROOT) not in sys.path:
 
 from chromadb.errors import InvalidCollectionException
 
-from app.sec_retrieval import embed_text, get_client, settings
+from app.sec_retrieval import embed_texts, get_client, settings
 
 DEFAULT_CHUNKS_PATH = REPO_ROOT / "data" / "processed" / "sec" / "chunks.jsonl"
 DEFAULT_INDEX_PATH = REPO_ROOT / settings.sec_index_path
@@ -56,7 +56,7 @@ def to_metadata(chunk: dict[str, Any]) -> dict[str, Any]:
 
 
 def batched(items: list[dict[str, Any]], batch_size: int) -> list[list[dict[str, Any]]]:
-    return [items[index:index + batch_size] for index in range(0, len(items), batch_size)]
+    return [items[index : index + batch_size] for index in range(0, len(items), batch_size)]
 
 
 def main() -> None:
@@ -76,13 +76,16 @@ def main() -> None:
         except (InvalidCollectionException, ValueError):
             pass
 
-    collection = client.get_or_create_collection(name=args.collection_name, metadata={"source": "sec_filings"})
+    collection = client.get_or_create_collection(
+        name=args.collection_name,
+        metadata={"source": "sec_filings", "hnsw:space": "cosine"},
+    )
 
     for batch in batched(chunks, args.batch_size):
         ids = [chunk["chunk_id"] for chunk in batch]
         documents = [chunk["text"] for chunk in batch]
         metadatas = [to_metadata(chunk) for chunk in batch]
-        embeddings = [embed_text(chunk["text"]) for chunk in batch]
+        embeddings = embed_texts([chunk["text"] for chunk in batch])
         collection.upsert(ids=ids, documents=documents, metadatas=metadatas, embeddings=embeddings)
 
     LOGGER.info(
