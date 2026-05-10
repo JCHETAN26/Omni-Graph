@@ -19,6 +19,7 @@ agent/app/__pycache__/
 # Node
 dashboard/node_modules/
 dashboard/.next/
+dashboard/next-env.d.ts
 
 # Environment files
 .env

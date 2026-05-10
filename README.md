@@ -132,7 +132,7 @@ The verifier emits a structured verdict (`verified`, `support_score`, `citation_
 - Two custom eval harnesses: a 25-prompt accuracy/grounding eval and a 40-prompt adversarial benchmark
 
 ### Frontend
-- `Next.js` planned for the observability dashboard
+- `Next.js 14` (App Router, TypeScript) dashboard at `dashboard/`, talking to the agent's `/query` endpoint via a server-side proxy (`app/api/query/route.ts`)
 
 ## Data Strategy
 Guardian-Stream uses both unstructured and structured datasets.
@@ -189,9 +189,9 @@ Implemented:
 - 31-test pytest suite covering router, verifier, structured retrieval, and store
 - Kubernetes manifests for agent + gateway with KEDA Kafka-lag autoscaling
 - GitHub Actions CI (ruff lint + format, pytest, kubeconform on manifests)
+- Synchronous `/query` endpoint on the agent (CORS-enabled) plus a Next.js 14 dashboard rendering the answer, four verification signals, reasoning trace, sources, and recent-query history
 
 Still evolving:
-- dashboard implementation (Next.js scaffold present, not wired)
 - live Snowflake connection (today's store is SQLite with the same query shape)
 - gateway PII-redaction breadth (current rules cover structured PII; contextual NER not yet integrated)
 
@@ -307,9 +307,9 @@ That is the system slice this project is trying to prove first.
 
 ## Roadmap
 ### Near Term
-- wire the dashboard to the agent's reasoning trace and verification verdict
 - swap the SQLite store for a real Snowflake connection (query shapes already match)
 - broaden gateway PII coverage with contextual NER (spaCy / Presidio)
+- persist audit logs from the live request path (today the table only holds seed data)
 
 ### Later
 - introduce production-grade vector backends such as Milvus or Pinecone
