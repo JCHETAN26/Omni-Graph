@@ -29,20 +29,24 @@ def test_find_employee_by_last_name():
     assert employee["last_name"].lower() == "santos"
 
 
-def test_project_access_query_returns_sources():
-    answer, sources = answer_structured_query("Who has access to Project Redwood?")
+def test_project_access_query_returns_sources_for_owner():
+    # E1001 (Ava Patel) is an explicit OWNER of Project Redwood
+    answer, sources, decision = answer_structured_query("Who has access to Project Redwood?", user_id="E1001")
+    assert decision is not None and decision.allowed
     assert "Project Redwood" in answer
     assert len(sources) > 0
     assert all(s["type"] == "employee_project_access" for s in sources)
 
 
 def test_policy_query_returns_active_policies():
-    answer, sources = answer_structured_query("Show active policies")
+    answer, sources, decision = answer_structured_query("Show active policies")
+    assert decision is None  # non-project query, no authorization decision
     assert "polic" in answer.lower()
     assert len(sources) > 0
 
 
 def test_unknown_entity_returns_active_policies_fallback():
-    answer, sources = answer_structured_query("nothing in particular")
+    answer, sources, decision = answer_structured_query("nothing in particular")
+    assert decision is None
     assert "polic" in answer.lower()
     assert len(sources) > 0

@@ -1,15 +1,19 @@
 """SQL-backed governance store.
 
-Mirrors the schema we expect to land in Snowflake. Today the backend is SQLite
-(stdlib, zero-config); switching to Snowflake means swapping the connection
-factory — query strings are ANSI-compatible.
+Mirrors the schema we expect to land in Snowflake. The backend is selected at
+runtime: if `SNOWFLAKE_ACCOUNT` (and credentials) are set the store talks to
+Snowflake; otherwise it falls back to local SQLite. Query strings are
+ANSI-compatible across both, parameters use `?` (snowflake-connector-python is
+configured for `paramstyle="qmark"`).
 """
 
 from __future__ import annotations
 
 import sqlite3
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -26,6 +30,17 @@ from .governance_data import (
 )
 
 DB_PATH = REPO_ROOT / "data" / "governance.sqlite"
+
+
+def snowflake_enabled() -> bool:
+    """Returns True when SNOWFLAKE_* env is set well enough to attempt a connect."""
+    return bool(
+        settings.snowflake_account
+        and settings.snowflake_user
+        and settings.snowflake_password
+        and settings.snowflake_database
+    )
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS departments (
@@ -121,11 +136,37 @@ SEED_TABLES = [
 
 
 def _connect(db_path: Path | None = None) -> sqlite3.Connection:
+    """Local SQLite connection. The Snowflake path bypasses this entirely (see
+    SnowflakeStore) so the SQLite-shaped tests stay isolated from env config.
+    """
     target = db_path or DB_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(target))
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _connect_snowflake():
+    """Lazy import so snowflake-connector-python stays optional.
+
+    Install with: `pip install snowflake-connector-python` and set the
+    `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_PASSWORD`,
+    `SNOWFLAKE_DATABASE`, `SNOWFLAKE_WAREHOUSE` env vars.
+    """
+    try:
+        import snowflake.connector as sf  # type: ignore[import-not-found]
+    except ImportError as exc:  # pragma: no cover - depends on optional dep
+        raise RuntimeError("snowflake-connector-python is not installed but SNOWFLAKE_ACCOUNT is set") from exc
+    return sf.connect(
+        account=settings.snowflake_account,
+        user=settings.snowflake_user,
+        password=settings.snowflake_password,
+        database=settings.snowflake_database,
+        schema=settings.snowflake_schema,
+        warehouse=settings.snowflake_warehouse,
+        role=settings.snowflake_role,
+        paramstyle="qmark",
+    )
 
 
 def init_db(db_path: Path | None = None, force: bool = False) -> Path:
@@ -160,7 +201,8 @@ def _coerce(value: Any) -> Any:
 
 
 class StructuredStore:
-    """Read-only SQL store. Methods return list[dict] for ergonomic use."""
+    """SQL store with read methods returning list[dict] and a single write path
+    for audit-log persistence."""
 
     def __init__(self, db_path: Path | None = None) -> None:
         self._db_path = db_path or DB_PATH
@@ -274,9 +316,126 @@ class StructuredStore:
     def list_request_metrics(self) -> list[dict[str, Any]]:
         return self._fetch("SELECT * FROM request_metrics ORDER BY request_id")
 
+    def write_audit_log(
+        self,
+        *,
+        request_id: str,
+        employee_id: str | None,
+        project_id: str | None,
+        original_prompt: str,
+        sanitized_prompt: str,
+        policy_outcome: str,
+        response_status: str,
+        redaction_count: int = 0,
+        request_channel: str = "api",
+        created_at: str | None = None,
+    ) -> str:
+        """Append a single audit-log row. Returns the generated audit_id."""
+        ts = created_at or datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+        audit_id = f"L{uuid.uuid4().hex[:10].upper()}"
+        conn = _connect(self._db_path)
+        try:
+            conn.execute(
+                """
+                INSERT INTO audit_logs (
+                    audit_id, request_id, employee_id, project_id,
+                    request_channel, original_prompt, sanitized_prompt,
+                    policy_outcome, redaction_count, response_status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    audit_id,
+                    request_id,
+                    employee_id,
+                    project_id,
+                    request_channel,
+                    original_prompt,
+                    sanitized_prompt,
+                    policy_outcome,
+                    redaction_count,
+                    response_status,
+                    ts,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return audit_id
+
+
+class SnowflakeStore(StructuredStore):
+    """Snowflake-backed variant. Reuses every SQL string from StructuredStore;
+    only the connection factory and parameter style differ."""
+
+    def __init__(self) -> None:
+        # Skip the SQLite init_db check from the parent.
+        self._db_path = DB_PATH  # unused, kept for attribute parity
+
+    @contextmanager
+    def _cursor(self) -> Iterator[Any]:  # type: ignore[override]
+        conn = _connect_snowflake()
+        try:
+            yield conn.cursor()
+        finally:
+            conn.close()
+
+    def _fetch(self, sql: str, params: tuple = ()) -> list[dict[str, Any]]:
+        with self._cursor() as cur:
+            cur.execute(sql, params)
+            columns = [c[0].lower() for c in cur.description] if cur.description else []
+            return [dict(zip(columns, row, strict=False)) for row in cur.fetchall()]
+
+    def write_audit_log(  # type: ignore[override]
+        self,
+        *,
+        request_id: str,
+        employee_id: str | None,
+        project_id: str | None,
+        original_prompt: str,
+        sanitized_prompt: str,
+        policy_outcome: str,
+        response_status: str,
+        redaction_count: int = 0,
+        request_channel: str = "api",
+        created_at: str | None = None,
+    ) -> str:
+        ts = created_at or datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+        audit_id = f"L{uuid.uuid4().hex[:10].upper()}"
+        conn = _connect_snowflake()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO audit_logs (
+                    audit_id, request_id, employee_id, project_id,
+                    request_channel, original_prompt, sanitized_prompt,
+                    policy_outcome, redaction_count, response_status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    audit_id,
+                    request_id,
+                    employee_id,
+                    project_id,
+                    request_channel,
+                    original_prompt,
+                    sanitized_prompt,
+                    policy_outcome,
+                    redaction_count,
+                    response_status,
+                    ts,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return audit_id
+
 
 @lru_cache(maxsize=1)
 def get_store() -> StructuredStore:
+    if snowflake_enabled():
+        return SnowflakeStore()
     path_override = getattr(settings, "structured_db_path", None)
     db_path = Path(path_override) if path_override else None
     return StructuredStore(db_path=db_path)

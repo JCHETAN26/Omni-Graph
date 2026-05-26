@@ -2,6 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from .authorization import (
+    ANONYMOUS_USER_ID,
+    AuthorizationDecision,
+    authorize_directory_access,
+    authorize_project_access,
+    refusal_answer,
+)
 from .governance_store import StructuredStore, get_store
 
 CLEARANCE_ORDER = {"L1": 1, "L2": 2, "L3": 3, "L4": 4, "L5": 5}
@@ -14,34 +21,85 @@ PROJECT_ALIASES = {
 }
 
 
-def answer_structured_query(prompt: str) -> tuple[str, list[dict[str, Any]]]:
+def answer_structured_query(
+    prompt: str,
+    user_id: str = ANONYMOUS_USER_ID,
+) -> tuple[str, list[dict[str, Any]], AuthorizationDecision | None]:
+    """Resolve a structured query.
+
+    Returns `(answer, sources, decision)`. `decision` is set for project-scoped
+    queries and directory lookups (allow or deny), and `None` for open queries
+    (policies, metrics, fallback). Denials short-circuit before any data is
+    exposed. Audit-log persistence is the workflow layer's responsibility.
+    """
     store = get_store()
     normalized = prompt.lower()
 
     project = find_project(normalized, store)
-    if (
-        any(phrase in normalized for phrase in ("who has access", "who can access", "access to", "cleared for"))
-        and project
-    ):
-        return answer_project_access(store, project)
-
-    if "policy" in normalized or "policies" in normalized or "mask" in normalized or "blocked" in normalized:
-        return answer_policy_query(store, project, normalized)
-
-    if "audit" in normalized or "blocked request" in normalized or "blocked prompts" in normalized:
-        return answer_audit_query(store, project)
-
-    if "latency" in normalized or "metrics" in normalized:
-        return answer_metrics_query(store)
 
     if project:
-        return answer_project_summary(store, project)
+        decision = authorize_project_access(user_id, project, store)
+        if not decision.allowed:
+            answer = refusal_answer(decision)
+            sources = [_decision_source(decision)]
+            return answer, sources, decision
 
+        answer, sources = _resolve_project_query(store, project, normalized)
+        return answer, sources, decision
+
+    # Policy and metrics listings are open (no PII).
+    if "policy" in normalized or "policies" in normalized or "mask" in normalized:
+        answer, sources = answer_policy_query(store, None, normalized)
+        return answer, sources, None
+
+    if "latency" in normalized or "metrics" in normalized:
+        answer, sources = answer_metrics_query(store)
+        return answer, sources, None
+
+    # Audit logs and employee lookups expose original prompts and PII — gate them.
+    wants_audit = (
+        "audit" in normalized
+        or "blocked request" in normalized
+        or "blocked prompts" in normalized
+        or "blocked" in normalized
+    )
     employee = find_employee(normalized, store)
-    if employee:
-        return answer_employee_summary(store, employee)
+    if wants_audit or employee:
+        decision = authorize_directory_access(user_id, store)
+        if not decision.allowed:
+            return refusal_answer(decision), [_decision_source(decision)], decision
+        if employee:
+            answer, sources = answer_employee_summary(store, employee)
+            return answer, sources, decision
+        answer, sources = answer_audit_query(store, None)
+        return answer, sources, decision
 
-    return answer_active_policies(store)
+    answer, sources = answer_active_policies(store)
+    return answer, sources, None
+
+
+def _resolve_project_query(
+    store: StructuredStore, project: dict[str, Any], normalized: str
+) -> tuple[str, list[dict[str, Any]]]:
+    if any(phrase in normalized for phrase in ("who has access", "who can access", "access to", "cleared for")):
+        return answer_project_access(store, project)
+    if "policy" in normalized or "policies" in normalized or "mask" in normalized or "blocked" in normalized:
+        return answer_policy_query(store, project, normalized)
+    if "audit" in normalized or "blocked request" in normalized or "blocked prompts" in normalized:
+        return answer_audit_query(store, project)
+    return answer_project_summary(store, project)
+
+
+def _decision_source(decision: AuthorizationDecision) -> dict[str, Any]:
+    return {
+        "type": "authorization_decision",
+        "user_id": decision.user_id,
+        "project_id": decision.project_id,
+        "project_name": decision.project_name,
+        "user_clearance": decision.user_clearance,
+        "required_clearance": decision.required_clearance,
+        "reason": decision.reason,
+    }
 
 
 def answer_project_access(store: StructuredStore, project: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:

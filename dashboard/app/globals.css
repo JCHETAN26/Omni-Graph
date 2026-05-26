@@ -335,9 +335,107 @@ header .sub {
   font-size: 12px;
   color: var(--text-dim);
   margin-top: 8px;
+  flex-wrap: wrap;
 }
 
 .metrics span strong {
   color: var(--text);
   font-family: var(--mono);
+}
+
+.user-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.user-picker label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+
+.user-picker select {
+  flex: 1;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.user-picker select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.user-badge {
+  font-family: var(--mono);
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.trace .trace-step {
+  color: var(--text);
+}
+
+.trace .trace-detail {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.source-type {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.source-row {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.source-reason {
+  color: var(--warn);
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.source-denial {
+  border-color: rgba(248, 113, 113, 0.4);
+  background: rgba(248, 113, 113, 0.06);
+}
+
+.source-denial .source-type {
+  color: var(--bad);
+}
+
+.source-employee .source-type,
+.source-access .source-type {
+  color: var(--accent);
+}
+
+.source-policy .source-type {
+  color: var(--warn);
+}
+
+.history .row.dim {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-family: var(--mono);
+  margin-top: 2px;
 }

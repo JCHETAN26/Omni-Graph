@@ -8,8 +8,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from .authorization import ANONYMOUS_USER_ID
 from .config import settings
 from .consumer import poll_forever
+from .governance_store import get_store
+from .logging_config import configure_logging
 from .models import PromptEvent
 from .workflow import build_response
 
@@ -19,6 +22,7 @@ consumer_thread: Thread | None = None
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     global consumer_thread
+    configure_logging()
     consumer_thread = Thread(target=poll_forever, daemon=True)
     consumer_thread.start()
     yield
@@ -28,7 +32,7 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=settings.cors_allow_origins,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
@@ -36,7 +40,7 @@ app.add_middleware(
 
 class QueryRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=4000)
-    user_id: str = "dashboard-local"
+    user_id: str = ANONYMOUS_USER_ID
 
 
 @app.get("/health")
@@ -45,12 +49,29 @@ def health() -> dict[str, str]:
 
 
 @app.get("/ready")
-def ready() -> dict[str, str]:
+def ready() -> dict[str, object]:
+    consumer_alive = consumer_thread is not None and consumer_thread.is_alive()
     return {
-        "status": "ready",
+        "status": "ready" if consumer_alive else "degraded",
         "service": settings.app_name,
         "prompt_topic": settings.prompt_topic,
+        "consumer_alive": consumer_alive,
     }
+
+
+@app.get("/employees")
+def employees() -> list[dict]:
+    """Directory listing used by the dashboard's user picker. Returns synthetic
+    seed data only — no real PII."""
+    return [
+        {
+            "employee_id": e["employee_id"],
+            "name": f"{e['first_name']} {e['last_name']}",
+            "title": e["title"],
+            "clearance_level": e["clearance_level"],
+        }
+        for e in get_store().list_employees()
+    ]
 
 
 @app.post("/query")

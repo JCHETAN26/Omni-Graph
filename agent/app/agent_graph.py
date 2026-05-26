@@ -16,14 +16,25 @@ from .verification import verify_response
 
 class AgentGraphState(TypedDict, total=False):
     prompt: str
+    original_prompt: str
     request_id: str
     user_id: str
+    redaction_count: int
     answer: str
-    reasoning_trace: list[str]
+    reasoning_trace: list[dict[str, Any]]
     sources: list[dict[str, Any]]
     evidence: list[dict[str, Any]]
     path: str
     verification: dict[str, Any]
+    # Audit context emitted by terminal nodes for the workflow-level writer.
+    audit_outcome: str
+    audit_status: str
+    audit_project_id: str | None
+
+
+def _trace(step: str, **detail: Any) -> dict[str, Any]:
+    """Build a typed reasoning-trace event."""
+    return {"step": step, "detail": detail} if detail else {"step": step}
 
 
 def route_entry(state: AgentGraphState) -> str:
@@ -36,23 +47,57 @@ def route_entry(state: AgentGraphState) -> str:
 
 
 def structured_response_node(state: AgentGraphState) -> dict[str, Any]:
-    answer, sources = answer_structured_query(state["prompt"])
+    user_id = state.get("user_id") or "anonymous"
+    answer, sources, decision = answer_structured_query(state["prompt"], user_id=user_id)
     evidence = [
         {"chunk_id": f"{source.get('type')}::{idx}", "text": _stringify_source(source)}
         for idx, source in enumerate(sources)
     ]
+    trace = [
+        _trace("received_sanitized_prompt"),
+        _trace("entered_langgraph_workflow"),
+        _trace("routed_to_structured_governance_path"),
+    ]
+    if decision is not None:
+        trace.append(
+            _trace(
+                "authorization_decision",
+                allowed=decision.allowed,
+                reason=decision.reason,
+                project_id=decision.project_id,
+                project_name=decision.project_name,
+                user_clearance=decision.user_clearance,
+                required_clearance=decision.required_clearance,
+            )
+        )
+    trace.extend(
+        [
+            _trace("queried_local_governance_dataset"),
+            _trace("assembled_structured_response"),
+        ]
+    )
+    if decision is None:
+        audit_outcome, audit_status = "ALLOWED", "COMPLETED"
+        project_id = None
+    elif decision.allowed:
+        audit_outcome, audit_status = "ALLOWED", "COMPLETED"
+        project_id = decision.project_id
+    else:
+        # Project denial vs. directory denial → different policy outcomes.
+        audit_outcome = (
+            "BLOCKED_CLEARANCE" if decision.reason == "clearance_below_project_sensitivity" else "BLOCKED_AUTH"
+        )
+        audit_status = "DENIED"
+        project_id = decision.project_id
     return {
         "answer": answer,
         "sources": sources,
         "evidence": evidence,
         "path": "structured",
-        "reasoning_trace": [
-            "received_sanitized_prompt",
-            "entered_langgraph_workflow",
-            "routed_to_structured_governance_path",
-            "queried_local_governance_dataset",
-            "assembled_structured_response",
-        ],
+        "reasoning_trace": trace,
+        "audit_outcome": audit_outcome,
+        "audit_status": audit_status,
+        "audit_project_id": project_id,
     }
 
 
@@ -92,13 +137,16 @@ def sec_response_node(state: AgentGraphState) -> dict[str, Any]:
         "evidence": evidence_records,
         "path": "sec",
         "reasoning_trace": [
-            "received_sanitized_prompt",
-            "entered_langgraph_workflow",
-            "routed_to_sec_retrieval_path",
-            "loaded_local_sec_index",
-            "retrieved_relevant_sec_chunks",
-            "assembled_grounded_response",
+            _trace("received_sanitized_prompt"),
+            _trace("entered_langgraph_workflow"),
+            _trace("routed_to_sec_retrieval_path"),
+            _trace("loaded_local_sec_index"),
+            _trace("retrieved_relevant_sec_chunks", count=len(source_records)),
+            _trace("assembled_grounded_response"),
         ],
+        "audit_outcome": "ALLOWED",
+        "audit_status": "COMPLETED",
+        "audit_project_id": None,
     }
 
 
@@ -109,11 +157,14 @@ def mock_response_node(state: AgentGraphState) -> dict[str, Any]:
         "evidence": [],
         "path": "mock",
         "reasoning_trace": [
-            "received_sanitized_prompt",
-            "entered_langgraph_workflow",
-            "selected_mock_response_path",
-            "returned_placeholder_answer",
+            _trace("received_sanitized_prompt"),
+            _trace("entered_langgraph_workflow"),
+            _trace("selected_mock_response_path"),
+            _trace("returned_placeholder_answer"),
         ],
+        "audit_outcome": "MOCKED",
+        "audit_status": "COMPLETED",
+        "audit_project_id": None,
     }
 
 
@@ -121,23 +172,22 @@ def synthesize_response_node(state: AgentGraphState) -> dict[str, Any]:
     if state.get("path") != "sec":
         return {}
     evidence = state.get("evidence", []) or []
+    trace = list(state.get("reasoning_trace", []))
     if not evidence or not settings.anthropic_api_key:
-        trace = list(state.get("reasoning_trace", []))
-        trace.append("synthesis_skipped")
+        trace.append(_trace("synthesis_skipped", reason="no_evidence" if not evidence else "no_api_key"))
         return {"reasoning_trace": trace}
 
-    trace = list(state.get("reasoning_trace", []))
     try:
         synthesized = synthesize_answer(state["prompt"], evidence)
     except (SynthesisError, Exception) as exc:
-        trace.append(f"synthesis_failed:{type(exc).__name__}")
+        trace.append(_trace("synthesis_failed", error_type=type(exc).__name__))
         return {"reasoning_trace": trace}
 
     if not synthesized:
-        trace.append("synthesis_returned_empty")
+        trace.append(_trace("synthesis_returned_empty"))
         return {"reasoning_trace": trace}
 
-    trace.append("synthesized_answer_with_llm")
+    trace.append(_trace("synthesized_answer_with_llm"))
     return {"answer": synthesized, "reasoning_trace": trace}
 
 
@@ -150,8 +200,20 @@ def verify_response_node(state: AgentGraphState) -> dict[str, Any]:
         path=state.get("path", "unknown"),
     )
     trace = list(state.get("reasoning_trace", []))
-    trace.append("verified_response_grounded" if verification["verified"] else "verification_flagged_response")
-    return {"verification": verification, "reasoning_trace": trace}
+    trace.append(
+        _trace(
+            "verification_result",
+            verified=verification["verified"],
+            support_score=verification["support_score"],
+            citation_coverage=verification["citation_coverage"],
+        )
+    )
+    update: dict[str, Any] = {"verification": verification, "reasoning_trace": trace}
+    if not verification["verified"] and state.get("audit_outcome") == "ALLOWED":
+        # Downgrade allowed outcomes when the verifier flags the response.
+        update["audit_outcome"] = "FLAGGED_VERIFICATION"
+        update["audit_status"] = "FLAGGED"
+    return update
 
 
 @lru_cache(maxsize=1)

@@ -18,6 +18,19 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     synthesis_model: str = Field(default="claude-opus-4-7", alias="SYNTHESIS_MODEL")
     synthesis_max_tokens: int = Field(default=1024, alias="SYNTHESIS_MAX_TOKENS")
+    cors_allow_origins: list[str] = Field(
+        default=["http://localhost:3000", "http://127.0.0.1:3000"],
+        alias="CORS_ALLOW_ORIGINS",
+    )
+    snowflake_account: str | None = Field(default=None, alias="SNOWFLAKE_ACCOUNT")
+    snowflake_user: str | None = Field(default=None, alias="SNOWFLAKE_USER")
+    snowflake_password: str | None = Field(default=None, alias="SNOWFLAKE_PASSWORD")
+    snowflake_warehouse: str | None = Field(default=None, alias="SNOWFLAKE_WAREHOUSE")
+    snowflake_database: str | None = Field(default=None, alias="SNOWFLAKE_DATABASE")
+    snowflake_schema: str = Field(default="GUARDIAN_STREAM", alias="SNOWFLAKE_SCHEMA")
+    snowflake_role: str | None = Field(default=None, alias="SNOWFLAKE_ROLE")
+    log_format: str = Field(default="text", alias="LOG_FORMAT")  # "text" or "json"
+    pii_ner_enabled: bool = Field(default=True, alias="PII_NER_ENABLED")
     model_config = SettingsConfigDict(
         populate_by_name=True,
         env_file=str(REPO_ROOT / ".env"),

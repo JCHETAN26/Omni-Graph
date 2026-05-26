@@ -30,14 +30,19 @@ def poll_forever() -> None:
     if consumer is None:
         return
 
-    logger.info("Agent consumer started topic=%s", settings.prompt_topic)
+    logger.info("agent_consumer_started", extra={"topic": settings.prompt_topic})
     for message in consumer:
         event = PromptEvent.model_validate(message.value)
         response = build_response(event)
+        verification = response.verification or {}
         logger.info(
-            "Processed request_id=%s redactions=%s sources=%s answer=%s",
-            event.request_id,
-            event.redaction_count,
-            len(response.sources),
-            response.answer,
+            "request_processed",
+            extra={
+                "request_id": event.request_id,
+                "user_id": event.user_id,
+                "path": verification.get("path"),
+                "verified": verification.get("verified"),
+                "redactions": event.redaction_count,
+                "sources": len(response.sources),
+            },
         )

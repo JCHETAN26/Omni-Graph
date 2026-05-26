@@ -69,3 +69,25 @@ def test_find_policy_for_project_returns_match(store: StructuredStore) -> None:
     policy = store.find_policy_for_project("Project Redwood")
     assert policy is not None
     assert policy["policy_id"] == "SP4001"
+
+
+def test_snowflake_disabled_by_default(monkeypatch) -> None:
+    """With no SNOWFLAKE_* env, the store falls back to SQLite."""
+    from app import governance_store as gs
+
+    monkeypatch.setattr(gs.settings, "snowflake_account", None)
+    assert gs.snowflake_enabled() is False
+
+    gs.get_store.cache_clear()
+    s = gs.get_store()
+    assert type(s).__name__ == "StructuredStore"
+
+
+def test_snowflake_enabled_when_all_env_set(monkeypatch) -> None:
+    from app import governance_store as gs
+
+    monkeypatch.setattr(gs.settings, "snowflake_account", "acct")
+    monkeypatch.setattr(gs.settings, "snowflake_user", "user")
+    monkeypatch.setattr(gs.settings, "snowflake_password", "pw")
+    monkeypatch.setattr(gs.settings, "snowflake_database", "db")
+    assert gs.snowflake_enabled() is True

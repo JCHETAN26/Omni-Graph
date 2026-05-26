@@ -17,7 +17,7 @@ class PromptEvent(BaseModel):
 class AgentResponse(BaseModel):
     request_id: str
     answer: str
-    reasoning_trace: list[str]
+    reasoning_trace: list[dict[str, Any]]
     created_at: datetime
     sources: list[dict[str, Any]] = []
     verification: dict[str, Any] | None = None

@@ -126,9 +126,10 @@ The verifier emits a structured verdict (`verified`, `support_score`, `citation_
 - `KEDA ScaledObject` autoscaling the agent on Kafka consumer lag
 
 ### Quality
-- `pytest` for unit + store tests (31 tests, ~80 ms)
+- `pytest` for unit + store tests (58 tests covering router, verifier, store, structured retrieval, authorization, NER, audit, logging)
+- `JUnit 5` + AssertJ for the gateway sanitization service (Luhn-validated card detection)
 - `ruff` lint + format
-- GitHub Actions CI: ruff + pytest on agent changes, `kubeconform` on manifest changes
+- GitHub Actions CI: ruff + pytest on agent changes, `mvn test` on gateway changes, `kubeconform` on manifest changes
 - Two custom eval harnesses: a 25-prompt accuracy/grounding eval and a 40-prompt adversarial benchmark
 
 ### Frontend
@@ -178,22 +179,22 @@ guardian-stream/
 The repo contains a working agent stack with retrieval, synthesis, verification, and end-to-end evaluation.
 
 Implemented:
-- Spring Boot gateway skeleton with prompt ingestion and sanitization
-- Python LangGraph agent: router → structured/sec/mock → synthesis → verification → END
+- Spring Boot gateway with prompt ingestion, Luhn-validated card detection, and JUnit + AssertJ coverage on the sanitization service
+- Python LangGraph agent: router → structured/sec/mock → synthesis → verification → END, with typed reasoning-trace events
+- Clearance-aware authorization layer (RBAC by explicit grant OR clearance ≥ project sensitivity; directory lookups require authentication)
 - 999-chunk Chroma index over Apple + Microsoft 10-K and 10-Q filings, MiniLM embeddings, cosine distance
 - SEC ingestion + preprocessing pipeline
 - Claude Opus 4.7 synthesis with prompt-cached system prompt and explicit refusal handling
 - 4-signal verification node (citation coverage, prompt–evidence overlap, proper-noun grounding, distance gate)
-- SQLite-backed governance store with parameterized ANSI-SQL queries (Snowflake-shaped)
+- Governance store with parameterized ANSI-SQL queries — Snowflake adapter (env-gated, lazy import) with SQLite fallback
+- Workflow-level audit-log persistence on every request (structured, SEC, mock), with verifier-flagged downgrade
+- Layer-2 PII pass in the agent for names/orgs (heuristic + governance allowlist; optional Presidio when installed)
+- Structured JSON logging (`LOG_FORMAT=json`) and consumer-thread health on `/ready`
 - 25-prompt accuracy/grounding eval and 40-prompt adversarial benchmark
-- 31-test pytest suite covering router, verifier, structured retrieval, and store
+- 58-test pytest suite covering router, verifier, structured retrieval, authorization, audit, NER, logging, and store
 - Kubernetes manifests for agent + gateway with KEDA Kafka-lag autoscaling
-- GitHub Actions CI (ruff lint + format, pytest, kubeconform on manifests)
-- Synchronous `/query` endpoint on the agent (CORS-enabled) plus a Next.js 14 dashboard rendering the answer, four verification signals, reasoning trace, sources, and recent-query history
-
-Still evolving:
-- live Snowflake connection (today's store is SQLite with the same query shape)
-- gateway PII-redaction breadth (current rules cover structured PII; contextual NER not yet integrated)
+- GitHub Actions CI (ruff lint + format, pytest, `mvn test` on gateway changes, kubeconform on manifests)
+- Synchronous `/query` and `/employees` endpoints on the agent (CORS allowlist via config) plus a Next.js 14 dashboard with a clearance-aware user picker, typed source cards, and recent-query history
 
 ## Evaluation
 ### Accuracy and Grounding (25-prompt eval)
