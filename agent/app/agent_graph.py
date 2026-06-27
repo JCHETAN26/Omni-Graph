@@ -7,6 +7,7 @@ from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
 from .config import settings
+from .context_pruning import prune_evidence
 from .router import route_prompt
 from .sec_retrieval import format_citation, index_exists, retrieve_sec_context
 from .structured_retrieval import answer_structured_query
@@ -102,9 +103,14 @@ def structured_response_node(state: AgentGraphState) -> dict[str, Any]:
 
 
 def sec_response_node(state: AgentGraphState) -> dict[str, Any]:
-    retrieved = retrieve_sec_context(state["prompt"])
-    if not retrieved:
+    candidates = retrieve_sec_context(state["prompt"], top_k=20)
+    if not candidates:
         return mock_response_node(state)
+
+    # Prune candidates down to the highest-signal chunks before synthesis.
+    retrieved, pruning_stats = prune_evidence(state["prompt"], candidates, max_chunks=3)
+    if not retrieved:
+        retrieved = candidates[:3]  # fallback: keep top-3 by distance if pruner drops everything
 
     evidence_lines = []
     source_records = []
@@ -142,6 +148,7 @@ def sec_response_node(state: AgentGraphState) -> dict[str, Any]:
             _trace("routed_to_sec_retrieval_path"),
             _trace("loaded_local_sec_index"),
             _trace("retrieved_relevant_sec_chunks", count=len(source_records)),
+            _trace("context_pruning_applied", **pruning_stats),
             _trace("assembled_grounded_response"),
         ],
         "audit_outcome": "ALLOWED",

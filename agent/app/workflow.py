@@ -25,7 +25,7 @@ def build_mock_response(event: PromptEvent) -> AgentResponse:
     )
 
 
-def build_response(event: PromptEvent) -> AgentResponse:
+def build_response(event: PromptEvent, agent_latency_ms: float | None = None) -> AgentResponse:
     # Layer-2 PII pass: catches names/orgs the Java regex layer misses.
     ner_text, ner_count = redact_named_entities(event.sanitized_prompt)
     total_redactions = event.redaction_count + ner_count
@@ -42,6 +42,7 @@ def build_response(event: PromptEvent) -> AgentResponse:
     )
 
     _persist_audit(event, result, sanitized_prompt=ner_text, redaction_count=total_redactions)
+    _persist_metrics(event, result, agent_latency_ms=agent_latency_ms)
 
     return AgentResponse(
         request_id=event.request_id,
@@ -51,6 +52,27 @@ def build_response(event: PromptEvent) -> AgentResponse:
         sources=result.get("sources", []),
         verification=result.get("verification"),
     )
+
+
+def _persist_metrics(
+    event: PromptEvent,
+    result: dict,
+    *,
+    agent_latency_ms: float | None,
+) -> None:
+    """Best-effort: one request_metrics row per request. Never blocks the response."""
+    try:
+        store = get_store()
+        store.write_request_metrics(
+            request_id=event.request_id,
+            agent_latency_ms=agent_latency_ms,
+            blocked_attack=result.get("audit_outcome", "").startswith("BLOCKED"),
+        )
+    except Exception as exc:
+        logger.warning(
+            "metrics_persist_failed",
+            extra={"request_id": event.request_id, "error": str(exc)},
+        )
 
 
 def _persist_audit(

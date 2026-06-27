@@ -48,6 +48,11 @@ def health() -> dict[str, str]:
     return {"status": "ok", "service": settings.app_name}
 
 
+@app.get("/health/live")
+def health_live() -> dict[str, str]:
+    return {"status": "ok", "service": settings.app_name}
+
+
 @app.get("/ready")
 def ready() -> dict[str, object]:
     consumer_alive = consumer_thread is not None and consumer_thread.is_alive()
@@ -74,6 +79,12 @@ def employees() -> list[dict]:
     ]
 
 
+@app.get("/metrics/latency")
+def latency_metrics() -> dict:
+    """Return P50 / P95 / P99 agent latency from persisted request_metrics."""
+    return get_store().get_latency_percentiles()
+
+
 @app.post("/query")
 def query(req: QueryRequest) -> dict:
     """Synchronous prompt → response path that bypasses Kafka.
@@ -92,8 +103,18 @@ def query(req: QueryRequest) -> dict:
         created_at=datetime.now(UTC),
     )
     started = time.perf_counter()
-    response = build_response(event)
+    response = build_response(event, agent_latency_ms=None)  # latency captured below
     elapsed_ms = (time.perf_counter() - started) * 1000.0
+    # Patch the metrics row with the actual measured latency.
+    # build_response already wrote a row; we update it here so the timing
+    # is measured outside the graph rather than inside it.
+    try:
+        get_store().write_request_metrics(
+            request_id=request_id,
+            agent_latency_ms=round(elapsed_ms, 2),
+        )
+    except Exception:
+        pass  # non-fatal — response is already built
     return {
         "request_id": response.request_id,
         "answer": response.answer,

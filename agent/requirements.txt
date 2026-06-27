@@ -8,5 +8,6 @@ beautifulsoup4==4.12.3
 chromadb==0.5.5
 langgraph==0.2.34
 sentence-transformers==3.0.1
+torch==2.3.1
 anthropic==0.40.0
 pytest==8.3.3

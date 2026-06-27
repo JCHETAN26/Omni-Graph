@@ -362,6 +362,72 @@ class StructuredStore:
             conn.close()
         return audit_id
 
+    def write_request_metrics(
+        self,
+        *,
+        request_id: str,
+        agent_latency_ms: float | None = None,
+        gateway_latency_ms: float | None = None,
+        total_latency_ms: float | None = None,
+        token_usage_input: int | None = None,
+        token_usage_output: int | None = None,
+        blocked_attack: bool = False,
+        created_at: str | None = None,
+    ) -> str:
+        """Append a single request_metrics row. Returns the generated metric_id."""
+        ts = created_at or datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+        metric_id = f"M{uuid.uuid4().hex[:10].upper()}"
+        # Derive total if not supplied but agent latency is known.
+        if total_latency_ms is None and agent_latency_ms is not None:
+            total_latency_ms = (gateway_latency_ms or 0.0) + agent_latency_ms
+        conn = _connect(self._db_path)
+        try:
+            conn.execute(
+                """
+                INSERT INTO request_metrics (
+                    metric_id, request_id,
+                    gateway_latency_ms, agent_latency_ms, total_latency_ms,
+                    token_usage_input, token_usage_output,
+                    blocked_attack, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    metric_id,
+                    request_id,
+                    gateway_latency_ms,
+                    agent_latency_ms,
+                    total_latency_ms,
+                    token_usage_input,
+                    token_usage_output,
+                    1 if blocked_attack else 0,
+                    ts,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return metric_id
+
+    def get_latency_percentiles(self) -> dict[str, float | None]:
+        """Return P50 / P95 / P99 agent latency from persisted metrics."""
+        rows = self._fetch(
+            "SELECT agent_latency_ms FROM request_metrics WHERE agent_latency_ms IS NOT NULL ORDER BY agent_latency_ms"
+        )
+        values = [r["agent_latency_ms"] for r in rows]
+        if not values:
+            return {"p50": None, "p95": None, "p99": None, "count": 0}
+
+        def _percentile(data: list[float], pct: float) -> float:
+            idx = max(0, int(len(data) * pct / 100) - 1)
+            return round(data[idx], 2)
+
+        return {
+            "p50": _percentile(values, 50),
+            "p95": _percentile(values, 95),
+            "p99": _percentile(values, 99),
+            "count": len(values),
+        }
+
 
 class SnowflakeStore(StructuredStore):
     """Snowflake-backed variant. Reuses every SQL string from StructuredStore;
@@ -384,6 +450,51 @@ class SnowflakeStore(StructuredStore):
             cur.execute(sql, params)
             columns = [c[0].lower() for c in cur.description] if cur.description else []
             return [dict(zip(columns, row, strict=False)) for row in cur.fetchall()]
+
+    def write_request_metrics(
+        self,
+        *,
+        request_id: str,
+        agent_latency_ms: float | None = None,
+        gateway_latency_ms: float | None = None,
+        total_latency_ms: float | None = None,
+        token_usage_input: int | None = None,
+        token_usage_output: int | None = None,
+        blocked_attack: bool = False,
+        created_at: str | None = None,
+    ) -> str:
+        ts = created_at or datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+        metric_id = f"M{uuid.uuid4().hex[:10].upper()}"
+        if total_latency_ms is None and agent_latency_ms is not None:
+            total_latency_ms = (gateway_latency_ms or 0.0) + agent_latency_ms
+        conn = _connect_snowflake()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO request_metrics (
+                    metric_id, request_id,
+                    gateway_latency_ms, agent_latency_ms, total_latency_ms,
+                    token_usage_input, token_usage_output,
+                    blocked_attack, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    metric_id,
+                    request_id,
+                    gateway_latency_ms,
+                    agent_latency_ms,
+                    total_latency_ms,
+                    token_usage_input,
+                    token_usage_output,
+                    1 if blocked_attack else 0,
+                    ts,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return metric_id
 
     def write_audit_log(  # type: ignore[override]
         self,
